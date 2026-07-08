@@ -130,7 +130,10 @@ class Engine(threading.Thread):
 
     def run(self):
         while True:
-            source, client = self._connect()
+            try:
+                source, client = self._connect()
+            except Exception:
+                source, client = None, None
             if not source:
                 time.sleep(2.0)
                 continue

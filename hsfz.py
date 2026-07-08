@@ -58,11 +58,13 @@ def discover(timeout=3.0):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.settimeout(timeout)
         msg = struct.pack(">IH", 0, CTRL_IDENT)
-        sock.sendto(msg, ("255.255.255.255", DISCOVERY_PORT))
         try:
+            sock.sendto(msg, ("255.255.255.255", DISCOVERY_PORT))
             data, addr = sock.recvfrom(1024)
             return addr[0], data
-        except socket.timeout:
+        except OSError:
+            # includes timeout, and "no route to host" when the laptop
+            # isn't on the adapter's WiFi (yet) — both just mean not found
             return None
     finally:
         sock.close()
