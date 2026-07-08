@@ -15,10 +15,10 @@ class SpeedSourceError(Exception):
 class EnetSpeedSource:
     """Polls vehicle speed from the DME over the MHD ENET adapter.
 
-    Tries UDS ReadDataByIdentifier 0xF40D (the UDS mirror of OBD
-    PID 0x0D, vehicle speed) first, then falls back to classic OBD
-    service 01. Both report whole km/h; the tracker interpolates threshold
-    crossings so timing accuracy is far better than the 1 km/h quantization.
+    Tries UDS ReadDataByIdentifier 0xF40D first (the UDS mirror of OBD
+    PID 0x0D, vehicle speed), then falls back to classic OBD service 01.
+    Both report whole km/h; the tracker interpolates threshold crossings
+    so timing accuracy is far better than the 1 km/h quantization.
     """
 
     _MODES = [
@@ -75,17 +75,23 @@ class SimSpeedSource:
         self.t = 0.0
         self.mph = 0.0
         self._lifted = False
+        self._launch_t = 2.0
 
     def start(self):
         return "simulator"
 
     def _accel(self, mph):
-        if self.t < 2.0:
-            return 0.0                      # stationary before the launch
-        if mph < 138.0 and not self._lifted:
+        if not self._lifted:
+            if self.t < self._launch_t:
+                return 0.0                  # stationary before the launch
             # tapering pull: ~10 mph/s off the line down to ~3.5 mph/s at 130
-            return max(1.0, 10.0 - 0.047 * mph)
-        self._lifted = True
+            if mph < 138.0:
+                return max(1.0, 10.0 - 0.047 * mph)
+            self._lifted = True
+        if mph <= 0.0:                      # stopped again: queue the next pull
+            self._lifted = False
+            self._launch_t = self.t + 3.0
+            return 0.0
         return -6.0                         # lifted / braking to a stop
 
     def read(self):
