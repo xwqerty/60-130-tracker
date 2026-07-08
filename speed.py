@@ -62,33 +62,35 @@ class EnetSpeedSource:
 class SimSpeedSource:
     """Fake M240i pull for testing without the car.
 
-    Cruises at ~45 mph, launches into a pull that tapers off past 130,
-    then lifts and coasts down. Output is quantized to whole km/h like
-    the real PID. `speedup` > 1 runs faster than real time (timestamps
-    are virtual, so run math is unaffected).
+    Sits still for 2 s, launches into a pull that tapers off past 130,
+    then lifts and brakes back to a stop — so it exercises both the 0-40
+    test range and the full 60-130 run. Output is quantized to whole km/h
+    like the real PID. `speedup` > 1 runs faster than real time
+    (timestamps are virtual, so run math is unaffected).
     """
 
     def __init__(self, rate=25.0, speedup=1.0):
         self.dt = 1.0 / rate
         self.speedup = speedup
         self.t = 0.0
-        self.mph = 45.0
+        self.mph = 0.0
+        self._lifted = False
 
     def start(self):
         return "simulator"
 
     def _accel(self, mph):
         if self.t < 2.0:
-            return 0.0                      # cruising before the pull
-        if self.mph < 138.0 and not getattr(self, "_lifted", False):
-            # tapering pull: ~7 mph/s at 60 down to ~3.5 mph/s at 130
+            return 0.0                      # stationary before the launch
+        if mph < 138.0 and not self._lifted:
+            # tapering pull: ~10 mph/s off the line down to ~3.5 mph/s at 130
             return max(1.0, 10.0 - 0.047 * mph)
         self._lifted = True
-        return -3.0                         # lifted, coasting down
+        return -6.0                         # lifted / braking to a stop
 
     def read(self):
         self.t += self.dt
-        self.mph = max(30.0, self.mph + self._accel(self.mph) * self.dt)
+        self.mph = max(0.0, self.mph + self._accel(self.mph) * self.dt)
         if self.speedup < 100:
             time.sleep(self.dt / self.speedup)
         kmh_quantized = float(round(self.mph * KMH_PER_MPH))

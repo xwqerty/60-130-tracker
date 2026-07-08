@@ -37,14 +37,30 @@ readout; do your pull, results print immediately:
 After a run, slow below 55 mph and it re-arms for the next pull. `Ctrl+C`
 quits (and saves an in-progress run as partial).
 
+### First time? Do a 0-40 sanity test
+
+Before trusting it at real speeds, verify the whole chain (adapter, speed
+polling, run detection, logging) at legal speeds:
+
+```
+python3 tracker.py --test
+```
+
+Come to a complete stop, then accelerate normally past 40 mph. The clock
+starts at the first sign of movement and stops at 40 — if that prints a
+sensible time and saves a CSV, the 60-130 timing will work identically.
+Stop again to re-arm for another test.
+
 ### Options
 
 | Flag | Meaning |
 | --- | --- |
+| `--test` | 0-40 mph sanity test (shorthand for `--range 0-40`) |
+| `--range A-B` | Time any speed range in mph, e.g. `--range 30-100` |
+| `--runs N` | Exit after N runs (default: run until Ctrl+C) |
 | `--host IP` | Skip auto-discovery, connect to this gateway IP |
 | `--ecu 0x12` | ECU to poll (default `0x12`, the DME) |
 | `--log-dir DIR` | Where run CSVs go (default `logs/`) |
-| `--runs N` | Exit after N runs (default: run until Ctrl+C) |
 | `--sim` | Simulated pull — test everything without the car |
 | `--sim-speedup N` | Run the simulator N× faster than real time |
 

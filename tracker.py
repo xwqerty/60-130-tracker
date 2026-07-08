@@ -34,6 +34,10 @@ def parse_args():
     p.add_argument("--ecu", type=lambda s: int(s, 0), default=hsfz.DME_ADDR,
                    help="ECU address to poll (default 0x12 = DME)")
     p.add_argument("--log-dir", default="logs", help="where to save run CSVs")
+    p.add_argument("--range", default=None, metavar="A-B",
+                   help="speed range in mph to time (default 60-130)")
+    p.add_argument("--test", action="store_true",
+                   help="0-40 mph sanity test (same as --range 0-40)")
     p.add_argument("--runs", type=int, default=0,
                    help="exit after this many runs (0 = run until Ctrl+C)")
     p.add_argument("--sim", action="store_true", help="simulated pull, no car needed")
@@ -83,25 +87,35 @@ def print_result(r):
     print("\r" + " " * 78)
     print("=" * 46)
     if r["complete"]:
-        print(f"  60-130:   {r['60-130']:6.2f} s")
+        print(f"  {r['range'] + ':':<10}{r['total']:6.2f} s")
     else:
-        print("  RUN ABORTED (lifted before 130)")
-    if r["60-100"] is not None:
-        print(f"  60-100:   {r['60-100']:6.2f} s")
-    if r["100-130"] is not None:
-        print(f"  100-130:  {r['100-130']:6.2f} s")
-    print(f"  vmax:     {r['vmax_mph']:6.1f} mph")
-    print(f"  samples:  {r['sample_rate_hz']:.0f} Hz")
+        print(f"  RUN ABORTED (lifted before {r['range'].split('-')[1]})")
+    if r["split1"] is not None:
+        print(f"  {r['split_labels'][0] + ':':<10}{r['split1']:6.2f} s")
+    if r["split2"] is not None:
+        print(f"  {r['split_labels'][1] + ':':<10}{r['split2']:6.2f} s")
+    print(f"  {'vmax:':<10}{r['vmax_mph']:6.1f} mph")
+    print(f"  {'samples:':<10}{r['sample_rate_hz']:6.0f} Hz")
     print(f"  saved:    {r['file']}")
     print("=" * 46)
 
 
 def main():
     args = parse_args()
-    source, client = connect(args)
-    tracker = runlog.RunTracker(log_dir=args.log_dir)
+    range_str = args.range or ("0-40" if args.test else "60-130")
+    try:
+        start_mph, end_mph = (float(v) for v in range_str.split("-"))
+        if end_mph <= start_mph or start_mph < 0:
+            raise ValueError
+    except ValueError:
+        sys.exit(f"invalid --range {range_str!r}; expected e.g. 60-130 or 0-40")
 
-    print("Armed. Cross 60 mph under power to start the clock. Ctrl+C to quit.\n")
+    source, client = connect(args)
+    tracker = runlog.RunTracker(log_dir=args.log_dir,
+                                start_mph=start_mph, end_mph=end_mph)
+
+    go = "Launch from a stop" if start_mph == 0 else f"Cross {start_mph:g} mph under power"
+    print(f"Timing {tracker.label} mph. Armed. {go} to start the clock. Ctrl+C to quit.\n")
     live = sys.stdout.isatty()  # the \r-updating speed line only makes sense on a terminal
     last_draw = 0.0
     try:
@@ -125,9 +139,11 @@ def main():
             if live and now - last_draw > 0.1:  # don't spam the terminal
                 last_draw = now
                 if tracker.state == runlog.RECORDING:
-                    status = f"RECORDING  +{t - tracker.t60:5.2f} s"
+                    status = f"RECORDING  +{t - tracker.t_start:5.2f} s"
                 elif tracker.state == runlog.COOLDOWN:
-                    status = "cooldown (slow below 55 to re-arm)"
+                    rearm = ("stop" if tracker.rearm_mph == 0
+                             else f"slow below {tracker.rearm_mph:g}")
+                    status = f"cooldown ({rearm} to re-arm)"
                 else:
                     status = "armed"
                 sys.stdout.write(f"\r  {mph:6.1f} mph   [{status}]" + " " * 12)
