@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# Run logs (data, not code)
+logs/
+
+# Xcode — project is generated from ios/project.yml via xcodegen
+ios/M240iTracker.xcodeproj/
+ios/Info.plist
+ios/build/
+xcuserdata/
+DerivedData/
+
+# Tooling / local
+.claude/
+.DS_Store
