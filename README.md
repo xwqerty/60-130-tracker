@@ -8,7 +8,28 @@ The moment the car crosses **60 mph** it starts logging; crossing **130 mph**
 stops the clock. Every run is saved as a CSV trace plus a one-line summary,
 including 60–100 and 100–130 splits. Lifting early saves a partial run.
 
-## Usage
+## The app (easiest way)
+
+```
+python3 app.py
+```
+
+Opens a page in your browser (http://localhost:8130) that:
+
+- **detects the dongle automatically** — amber dot while searching, green
+  "Connected — ready to log" once it can read speed from the car (it keeps
+  retrying, so plug in / join the WiFi in any order)
+- shows **live speed**, big enough for a passenger to read
+- times a run **only when you press START LOG** — one run per press; the
+  clock still starts automatically at the 60 mph crossing (or first movement
+  for 0-40). Results stack up as cards and are saved to `logs/` as usual.
+- range picker for 60-130, the 0-40 sanity test, or 30-100
+
+Test it on the couch: `python3 app.py --sim`
+
+## Terminal version
+
+The original CLI does the same thing hands-free (auto re-arms after each run):
 
 1. Plug the MHD adapter into the OBD port, ignition on (engine running).
 2. On the laptop, join the adapter's WiFi network (**"MHD ENET xxxx"**).

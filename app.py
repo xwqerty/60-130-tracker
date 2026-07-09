@@ -15,6 +15,7 @@ Then open http://localhost:8130 (opens automatically).
 
 import argparse
 import json
+import pathlib
 import threading
 import time
 import webbrowser
@@ -69,6 +70,8 @@ class Engine(threading.Thread):
                 "status": status,
                 "phase": phase,
                 "mph": round(self.mph, 1),
+                "armed_range": ([self.tracker.start_mph, self.tracker.end_mph]
+                                if self.tracker else None),
                 "elapsed": round(elapsed, 2) if elapsed is not None else None,
                 "results": list(reversed(self.results)),
             }
@@ -164,82 +167,7 @@ class Engine(threading.Thread):
                     client.close()
 
 
-PAGE = """<!doctype html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>60-130 Tracker</title>
-<style>
-  body { background:#111; color:#eee; font-family:-apple-system,Helvetica,sans-serif;
-         display:flex; flex-direction:column; align-items:center; margin:0; padding:2rem 1rem; }
-  h1 { font-size:1.2rem; font-weight:600; letter-spacing:.05em; color:#888; margin:0 0 1.5rem; }
-  #status { display:flex; align-items:center; gap:.6rem; font-size:1.1rem; margin-bottom:.3rem; }
-  #dot { width:.8rem; height:.8rem; border-radius:50%; background:#e6a817; }
-  .ready #dot { background:#2ecc71; } .armed #dot, .recording #dot { background:#e74c3c; }
-  #detail { color:#666; font-size:.8rem; height:1rem; margin-bottom:1rem; }
-  #mph { font-size:6rem; font-weight:700; font-variant-numeric:tabular-nums; line-height:1; }
-  #mphlabel { color:#666; margin-bottom:1.5rem; }
-  #elapsed { font-size:2rem; color:#e74c3c; font-variant-numeric:tabular-nums;
-             height:2.5rem; margin-bottom:1rem; }
-  select { font-size:1.1rem; padding:.5rem; background:#222; color:#eee;
-           border:1px solid #444; border-radius:.5rem; margin-bottom:1rem; }
-  button { font-size:1.6rem; font-weight:700; padding:1.2rem 3.5rem; border:none;
-           border-radius:1rem; background:#2ecc71; color:#08301c; cursor:pointer; }
-  button:disabled { background:#333; color:#666; cursor:default; }
-  button.cancel { background:#e74c3c; color:#3d0c07; }
-  #runs { width:100%; max-width:30rem; margin-top:2rem; }
-  .run { background:#1b1b1b; border:1px solid #2a2a2a; border-radius:.7rem;
-         padding:.8rem 1rem; margin-bottom:.6rem; }
-  .run .big { font-size:1.5rem; font-weight:700; }
-  .run .sub { color:#888; font-size:.85rem; margin-top:.2rem; }
-  .partial .big { color:#e6a817; }
-</style></head><body>
-<h1>60&ndash;130 TRACKER</h1>
-<div id="status"><span id="dot"></span><span id="statustext">Starting&hellip;</span></div>
-<div id="detail"></div>
-<div id="mph">--</div>
-<div id="mphlabel">mph</div>
-<div id="elapsed"></div>
-<select id="range">
-  <option value="60-130">60&ndash;130 mph</option>
-  <option value="0-40">0&ndash;40 mph (test)</option>
-  <option value="30-100">30&ndash;100 mph</option>
-</select>
-<button id="go" disabled>START LOG</button>
-<div id="runs"></div>
-<script>
-const $ = id => document.getElementById(id);
-let phase = "searching";
-$("go").onclick = () => {
-  const url = (phase === "ready")
-    ? "/start?range=" + encodeURIComponent($("range").value) : "/cancel";
-  fetch(url, {method: "POST"});
-};
-function render(s) {
-  phase = s.phase;
-  document.body.className = s.phase;
-  $("statustext").textContent = s.status;
-  $("detail").textContent = s.detail ? (s.sim ? "SIMULATOR" : s.detail) : "";
-  $("mph").textContent = s.connected ? s.mph.toFixed(1) : "--";
-  $("elapsed").textContent = s.elapsed != null ? "+" + s.elapsed.toFixed(2) + " s" : "";
-  const go = $("go");
-  go.disabled = !s.connected;
-  go.textContent = (s.phase === "armed" || s.phase === "recording") ? "CANCEL" : "START LOG";
-  go.className = (s.phase === "armed" || s.phase === "recording") ? "cancel" : "";
-  $("range").style.visibility = (s.phase === "ready" || s.phase === "searching") ? "visible" : "hidden";
-  $("runs").innerHTML = s.results.map(r => {
-    const cls = r.complete ? "run" : "run partial";
-    const head = r.complete ? r.range + ": " + r.total.toFixed(2) + " s"
-                            : r.range + ": lifted early";
-    const bits = [];
-    if (r.split1 != null) bits.push(r.split_labels[0] + " " + r.split1.toFixed(2) + "s");
-    if (r.split2 != null) bits.push(r.split_labels[1] + " " + r.split2.toFixed(2) + "s");
-    bits.push("vmax " + r.vmax.toFixed(1) + " mph");
-    return '<div class="' + cls + '"><div class="big">' + head + '</div>' +
-           '<div class="sub">' + bits.join(" &middot; ") + " &middot; " + r.when + "</div></div>";
-  }).join("");
-}
-setInterval(() => fetch("/state").then(r => r.json()).then(render).catch(() => {}), 150);
-</script></body></html>"""
+PAGE_FILE = pathlib.Path(__file__).with_name("page.html")
 
 
 def make_handler(engine):
@@ -259,7 +187,7 @@ def make_handler(engine):
             if self.path == "/state":
                 self._json(engine.snapshot())
             elif self.path == "/" or self.path.startswith("/index"):
-                body = PAGE.encode()
+                body = PAGE_FILE.read_text().encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
