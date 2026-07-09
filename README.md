@@ -8,7 +8,18 @@ The moment the car crosses **60 mph** it starts logging; crossing **130 mph**
 stops the clock. Every run is saved as a CSV trace plus a one-line summary,
 including 60–100 and 100–130 splits. Lifting early saves a partial run.
 
-## The app (easiest way)
+## iPhone app (no laptop in the car)
+
+Native SwiftUI app in [ios/](ios/) — the phone joins the "MHD ENET" WiFi
+and talks HSFZ/UDS to the car directly. Same UI and timing logic as the
+web app; run CSVs are saved to Files › On My iPhone › 60-130 › logs.
+
+To install: `cd ios && xcodegen generate`, open `M240iTracker.xcodeproj`
+in Xcode, set your signing team, plug in the phone, press Run. Demo mode
+(Settings gear in the app) simulates pulls without the car; it defaults on
+in the iOS simulator, off on a real phone.
+
+## The laptop app (easiest way)
 
 ```
 python3 app.py
