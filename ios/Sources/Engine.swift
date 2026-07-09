@@ -31,6 +31,7 @@ final class Engine: ObservableObject {
     @Published var results: [RunResult] = []
 
     @AppStorage("customHost") var customHost = ""
+    @AppStorage("lastHost") var lastHost = ""
     @AppStorage("demoMode") var demoMode = Engine.isSimulator
 
     static let fallbackHosts = ["192.168.16.254", "169.254.128.7"]
@@ -143,10 +144,37 @@ final class Engine: ObservableObject {
             detail = "SIMULATOR"
             return (SimSpeedSource(), nil)
         }
-        var hosts = Self.fallbackHosts
-        let custom = customHost.trimmingCharacters(in: .whitespaces)
-        if !custom.isEmpty { hosts.insert(custom, at: 0) }
 
+        let phoneIP = wifiIPv4()
+        var hosts: [String] = []
+        let custom = customHost.trimmingCharacters(in: .whitespaces)
+        if !custom.isEmpty { hosts.append(custom) }
+        if !lastHost.isEmpty { hosts.append(lastHost) }
+        hosts += Self.fallbackHosts
+        var seen = Set<String>()
+        hosts = hosts.filter { seen.insert($0).inserted }
+
+        detail = phoneIP.map { "phone \($0) — trying known IPs…" }
+            ?? "no WiFi — join the MHD ENET network"
+        if let hit = await probe(hosts: hosts) { return (hit.0, hit.1) }
+
+        // Known IPs silent: sweep the phone's own /24 for the HSFZ port.
+        if let ip = phoneIP, let dot = ip.lastIndex(of: ".") {
+            let prefix = String(ip[..<dot])
+            detail = "phone \(ip) — scanning \(prefix).x…"
+            if let found = await scanSubnet(prefix: prefix, excluding: ip),
+               let hit = await probe(hosts: [found]) {
+                return (hit.0, hit.1)
+            }
+        }
+
+        detail = phoneIP.map {
+            "phone \($0) — nothing answered. Allow Local Network in Settings; force-close the MHD app"
+        } ?? "no WiFi — join the MHD ENET network"
+        return (nil, nil)
+    }
+
+    private func probe(hosts: [String]) async -> (SpeedSource, HsfzClient)? {
         for host in hosts {
             let client = HsfzClient(host: host)
             do {
@@ -154,11 +182,12 @@ final class Engine: ObservableObject {
                 let source = EnetSpeedSource(client: client)
                 let mode = try await source.start()
                 detail = "\(host) · \(mode)"
+                lastHost = host
                 return (source, client)
             } catch {
                 client.close()
             }
         }
-        return (nil, nil)
+        return nil
     }
 }

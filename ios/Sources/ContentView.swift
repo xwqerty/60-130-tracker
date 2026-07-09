@@ -197,6 +197,8 @@ struct StatusPill: View {
                 .font(.system(size: 11, weight: .medium))
                 .tracking(1)
                 .foregroundColor(.dim)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12)
         }
         .onAppear { pulse = true }
     }

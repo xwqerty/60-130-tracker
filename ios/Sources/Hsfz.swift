@@ -56,20 +56,23 @@ func withTimeout<T: Sendable>(_ seconds: Double, _ op: @escaping @Sendable () as
 
 final class HsfzClient: @unchecked Sendable {
     private let connection: NWConnection
+    private let connectTimeout: Double
     private var buffer = Data()
 
-    init(host: String) {
+    init(host: String, connectTimeout: Double = 4.0) {
+        self.connectTimeout = connectTimeout
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true          // speed polling is many tiny request/response pairs
         tcp.connectionTimeout = 3
         let params = NWParameters(tls: nil, tcp: tcp)
+        params.requiredInterfaceType = .wifi   // the adapter is only ever on WiFi
         connection = NWConnection(host: NWEndpoint.Host(host),
                                   port: NWEndpoint.Port(rawValue: Hsfz.port)!,
                                   using: params)
     }
 
     func connect() async throws {
-        try await withTimeout(4) { [connection] in
+        try await withTimeout(connectTimeout) { [connection] in
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
                 let resumed = Locked(false)
                 connection.stateUpdateHandler = { state in
