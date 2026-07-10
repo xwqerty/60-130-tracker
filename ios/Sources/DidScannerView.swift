@@ -58,7 +58,10 @@ struct DidScannerView: View {
         } header: {
             Text("Connection")
         } footer: {
-            Text("Timing is paused while the finder holds the diagnostic session.")
+            Text("Timing is paused while the finder holds the diagnostic session. "
+                 + "The finder only reads data — it never changes the module's mode. "
+                 + "If warning lights ever appear, stop, and cycle the ignition; "
+                 + "they clear once the car sleeps.")
         }
     }
 

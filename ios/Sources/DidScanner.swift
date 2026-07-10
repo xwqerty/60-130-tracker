@@ -102,7 +102,11 @@ final class DidScanner: ObservableObject {
         let c = HsfzClient(host: host)
         do {
             try await c.connect()
-            _ = try? await c.request(target: target, uds: Data([0x10, 0x03]), timeout: 1.5)  // extended session, best-effort
+            // Deliberately NO DiagnosticSessionControl (0x10) here: putting a
+            // chassis module (DSC/ABS) into an extended session suspends its
+            // normal operation and lights the brake/ABS warnings on the
+            // cluster. Plain ReadDataByIdentifier works in the default
+            // session and is the same passive read any OBD datalogger does.
             // Liveness: the target must answer *something* — a positive read
             // or a negative response both prove it's on the bus; only a
             // timeout means it's absent.
