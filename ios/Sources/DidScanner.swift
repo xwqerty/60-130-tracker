@@ -83,6 +83,12 @@ final class DidScanner: ObservableObject {
     @Published var gpsMax: Double?
     @Published var watchLogURL: URL?
 
+    // Read health: is the ECU still answering our reads, and if it stopped,
+    // when and why. Last session it went silent ~2 min in; this surfaces it.
+    @Published var readsLive = false
+    @Published var dropoutNote: String?
+    private var lastGoodRead: Date?
+
     var speedSpread: Double {
         guard let lo = gpsMin, let hi = gpsMax else { return 0 }
         return hi - lo
@@ -151,9 +157,10 @@ final class DidScanner: ObservableObject {
     }
 
     // Per-probe flags: whether the ECU answered at all (positive or NRC),
-    // and whether that answer was specifically a negative response.
+    // whether it was a negative response, and the NRC code if so.
     private var lastAnswered = false
     private var lastWasNegative = false
+    private var lastNrc: UInt8?
 
     /// Send UDS 0x22 <did> and return the payload if the ECU gave a positive
     /// (0x62) response. NRC and timeout both return nil but set the flags.
@@ -161,16 +168,45 @@ final class DidScanner: ObservableObject {
         let uds = Data([0x22, UInt8(did >> 8), UInt8(did & 0xFF)])
         do {
             let resp = try await c.request(target: target, uds: uds, timeout: timeout)
-            lastAnswered = true; lastWasNegative = false
+            lastAnswered = true; lastWasNegative = false; lastNrc = nil
             guard resp.count >= 3, resp[resp.startIndex] == 0x62 else { return nil }
             return Array(resp.dropFirst(3))
         } catch let e as HsfzError {
-            if case .negativeResponse = e { lastAnswered = true; lastWasNegative = true }
-            else { lastAnswered = false; lastWasNegative = false }   // timeout / socket
+            if case .negativeResponse(_, let nrc) = e {
+                lastAnswered = true; lastWasNegative = true; lastNrc = nrc
+            } else {
+                lastAnswered = false; lastWasNegative = false; lastNrc = nil
+            }
             return nil
         } catch {
-            lastAnswered = false; lastWasNegative = false
+            lastAnswered = false; lastWasNegative = false; lastNrc = nil
             return nil
+        }
+    }
+
+    /// TesterPresent (UDS 0x3E) — a no-op keep-alive. It only resets the
+    /// diagnostic-session timer; it does NOT change the module's mode the
+    /// way DiagnosticSessionControl (0x10) does, so it cannot light warning
+    /// lamps. Sub-function 0x00 requests a positive reply, so it returns
+    /// quickly and confirms the ECU is still there.
+    private func keepAlive(_ c: HsfzClient) async {
+        _ = try? await c.request(target: target, uds: Data([0x3E, 0x00]), timeout: 0.5)
+    }
+
+    /// Human-readable meaning of a UDS negative-response code.
+    static func nrcName(_ nrc: UInt8) -> String {
+        switch nrc {
+        case 0x10: "general reject"
+        case 0x11: "service not supported"
+        case 0x13: "wrong length/format"
+        case 0x21: "busy — repeat request"
+        case 0x22: "conditions not correct"
+        case 0x24: "request sequence error"
+        case 0x31: "request out of range"
+        case 0x33: "security access denied"
+        case 0x7E: "not supported in this session"
+        case 0x7F: "service not supported in this session"
+        default: String(format: "0x%02X", nrc)
         }
     }
 
@@ -186,16 +222,22 @@ final class DidScanner: ObservableObject {
             let total = Double(Int(end) - Int(start) + 1)
             var did = start
             var absent = 0
+            var wentSilent = false
+            var lastKeepAlive = Date()
             while !Task.isCancelled {
+                if Date().timeIntervalSince(lastKeepAlive) > 1.5 {
+                    await keepAlive(c)           // hold the session across the full sweep
+                    lastKeepAlive = Date()
+                }
                 if let bytes = await probe(c, did: did, timeout: 0.4), !bytes.isEmpty {
                     found.append(FoundDid(did: did, bytes: bytes))
                     absent = 0
                 } else if !lastAnswered {
                     // No answer at all (not even a NRC) — the bus may have
-                    // dropped; bail after a run of silence.
+                    // dropped; bail after a long run of silence.
                     absent += 1
-                    if absent > 40 {
-                        status = "ECU went silent — stopping scan"
+                    if absent > 200 {
+                        wentSilent = true
                         break
                     }
                 } else {
@@ -207,7 +249,10 @@ final class DidScanner: ObservableObject {
             }
             scanning = false
             if !Task.isCancelled {
-                status = "Found \(found.count) DIDs on 0x\(String(target, radix: 16))"
+                let where_ = String(format: "0x%04X", did)
+                status = wentSilent
+                    ? "ECU stopped answering at \(where_) — found \(found.count) so far (range incomplete)"
+                    : "Found \(found.count) DIDs on 0x\(String(target, radix: 16))"
             }
         }
     }
@@ -221,6 +266,7 @@ final class DidScanner: ObservableObject {
         watching = true
         stats.removeAll()
         gpsMin = nil; gpsMax = nil
+        readsLive = false; dropoutNote = nil; lastGoodRead = nil
         startLog(dids: dids)
         watchGeneration += 1
         let gen = watchGeneration
@@ -228,7 +274,15 @@ final class DidScanner: ObservableObject {
         guard let c = client else { return }
         job = Task {
             let t0 = Date()
+            var lastKeepAlive = Date()
             while !Task.isCancelled, gen == watchGeneration {
+                // Heartbeat: hold the diagnostic session open (last session
+                // the ECU went silent ~2 min in). Safe no-op, never a mode change.
+                if Date().timeIntervalSince(lastKeepAlive) > 1.5 {
+                    await keepAlive(c)
+                    guard gen == watchGeneration else { return }
+                    lastKeepAlive = Date()
+                }
                 // A GPS fix is only trusted if it's fresh — CoreLocation can
                 // stop delivering (garage, tunnel) and the last value would
                 // otherwise be treated as live forever.
@@ -242,10 +296,14 @@ final class DidScanner: ObservableObject {
                     gpsMax = max(gpsMax ?? g, g)
                 }
                 var row: [UInt16: [UInt16]] = [:]
+                var anyAnswer = false
+                var lastNrcThisRow: UInt8?
                 for did in dids {
                     let bytes = await probe(c, did: did, timeout: 0.4)
                     guard gen == watchGeneration else { return }   // stale task
+                    if lastWasNegative { lastNrcThisRow = lastNrc }
                     guard let bytes else { continue }
+                    anyAnswer = true
                     let f = FoundDid(did: did, bytes: bytes)
                     row[did] = f.words
                     if let g = gps, gpsOK, g > 5 {
@@ -267,7 +325,25 @@ final class DidScanner: ObservableObject {
                         }
                     }
                 }
-                appendLogRow(t: Date().timeIntervalSince(t0), gps: gps, gpsOK: gpsOK, values: row)
+                let elapsed = Date().timeIntervalSince(t0)
+                appendLogRow(t: elapsed, gps: gps, gpsOK: gpsOK, values: row)
+
+                // Read-health tracking: note when the ECU stops answering and
+                // why, so a mid-drive dropout is visible instead of silent.
+                if anyAnswer {
+                    lastGoodRead = Date()
+                    readsLive = true
+                    dropoutNote = nil
+                } else if let last = lastGoodRead {
+                    let dead = Date().timeIntervalSince(last)
+                    if dead > 3 {
+                        readsLive = false
+                        let why = lastNrcThisRow.map { "DSC replied “\(Self.nrcName($0))”" }
+                            ?? "no reply (timeout)"
+                        dropoutNote = String(format: "Reads stopped at %.0fs (%.0f mph). %@.",
+                                             elapsed, gps ?? 0, why)
+                    }
+                }
                 try? await Task.sleep(nanoseconds: 40_000_000)
             }
             if gen == watchGeneration {

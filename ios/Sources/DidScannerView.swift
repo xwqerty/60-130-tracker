@@ -128,6 +128,18 @@ struct DidScannerView: View {
     private var watchSection: some View {
         Section {
             HStack {
+                Text("ECU reads").foregroundColor(.secondary)
+                Spacer()
+                Circle().fill(scanner.readsLive ? Color.green : Color.red)
+                    .frame(width: 8, height: 8)
+                Text(scanner.readsLive ? "live" : "stopped")
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundColor(scanner.readsLive ? .green : .red)
+            }
+            if let note = scanner.dropoutNote {
+                Text(note).font(.footnote).foregroundColor(.red)
+            }
+            HStack {
                 Text("GPS speed").foregroundColor(.secondary)
                 Spacer()
                 Text(scanner.gpsMph.map { String(format: "%.1f mph", $0) } ?? "no fix")
