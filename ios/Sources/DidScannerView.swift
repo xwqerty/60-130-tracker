@@ -4,7 +4,7 @@ struct DidScannerView: View {
     @ObservedObject var scanner: DidScanner
     @State private var selected: Set<UInt16> = []
     @State private var targetHex = "29"
-    @State private var shareURL: IdentifiableURL?
+    @State private var share: ShareBundle?
 
     var body: some View {
         Form {
@@ -19,7 +19,7 @@ struct DidScannerView: View {
         .navigationTitle("Wheel-speed finder")
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear { scanner.disconnect() }
-        .sheet(item: $shareURL) { wrap in ShareSheet(items: [wrap.url]) }
+        .sheet(item: $share) { bundle in ShareSheet(items: bundle.urls) }
     }
 
     // MARK: sections
@@ -121,6 +121,10 @@ struct DidScannerView: View {
         }
     }
 
+    private var spreadColor: Color {
+        scanner.speedSpread >= 20 ? .green : (scanner.speedSpread >= 10 ? .orange : .red)
+    }
+
     private var watchSection: some View {
         Section {
             HStack {
@@ -128,6 +132,16 @@ struct DidScannerView: View {
                 Spacer()
                 Text(scanner.gpsMph.map { String(format: "%.1f mph", $0) } ?? "no fix")
                     .font(.system(.body, design: .monospaced))
+            }
+            HStack {
+                Text("Speed spread").foregroundColor(.secondary)
+                Spacer()
+                Text("\(Int(scanner.speedSpread)) mph")
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundColor(spreadColor)
+                Text(scanner.speedSpread >= 20 ? "enough" : "keep sweeping")
+                    .font(.footnote)
+                    .foregroundColor(spreadColor)
             }
             ForEach(scanner.rankedChannels) { s in
                 HStack {
@@ -152,11 +166,20 @@ struct DidScannerView: View {
             }
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Drive above ~10 mph. The four channels with r≈1.000 and "
-                     + "matching mph are your wheel speeds; the pair reading "
-                     + "lower under acceleration are the fronts.")
-                Button("Export findings (CSV)") {
-                    if let url = scanner.exportFindings() { shareURL = IdentifiableURL(url: url) }
+                Text("Sweep your speed up and down (e.g. 15 ↔ 50 mph) until the "
+                     + "spread shows green — correlations mean nothing at constant "
+                     + "speed. Then one firm pull: the four channels at r≈1.000 are "
+                     + "wheels, and the pair reading lower under power are the "
+                     + "fronts. A brief stationary wheelspin also helps — in the "
+                     + "saved time-series log the rears move while fronts and GPS "
+                     + "stay at zero.")
+                Text("Every sample is auto-saved to a time-series CSV, including "
+                     + "below-5-mph data the live ranking ignores.")
+                Button("Export findings + time-series log") {
+                    var urls: [URL] = []
+                    if let f = scanner.exportFindings() { urls.append(f) }
+                    if let w = scanner.exportWatchLog() { urls.append(w) }
+                    if !urls.isEmpty { share = ShareBundle(urls: urls) }
                 }
             }
         }
@@ -173,7 +196,10 @@ struct DidScannerView: View {
     }
 }
 
-struct IdentifiableURL: Identifiable { let url: URL; var id: String { url.absoluteString } }
+struct ShareBundle: Identifiable {
+    let urls: [URL]
+    var id: String { urls.map(\.absoluteString).joined() }
+}
 
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]

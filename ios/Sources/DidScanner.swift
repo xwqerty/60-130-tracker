@@ -77,6 +77,17 @@ final class DidScanner: ObservableObject {
     @Published var stats: [String: ChannelStat] = [:]
     @Published var gpsMph: Double?
 
+    // Watch quality: correlations are only trustworthy once the drive has
+    // covered a decent speed range. Track GPS min/max seen this watch.
+    @Published var gpsMin: Double?
+    @Published var gpsMax: Double?
+    @Published var watchLogURL: URL?
+
+    var speedSpread: Double {
+        guard let lo = gpsMin, let hi = gpsMax else { return 0 }
+        return hi - lo
+    }
+
     // Enumeration window (full 16-bit space by default).
     @Published var rangeStart: UInt16 = 0x0000
     @Published var rangeEnd: UInt16 = 0xFFFF
@@ -84,6 +95,10 @@ final class DidScanner: ObservableObject {
     private weak var engine: Engine?
     private var client: HsfzClient?
     private var job: Task<Void, Never>?
+
+    // Bumped on every watch start/stop so a cancelled task that resumes
+    // from an await can tell it's stale and must not touch shared state.
+    private var watchGeneration = 0
 
     init(engine: Engine) { self.engine = engine }
 
@@ -126,7 +141,9 @@ final class DidScanner: ObservableObject {
     }
 
     func disconnect() {
+        watchGeneration += 1
         job?.cancel(); job = nil
+        flushLog()
         client?.close(); client = nil
         connected = false; scanning = false; watching = false
         status = "Not connected"
@@ -203,16 +220,35 @@ final class DidScanner: ObservableObject {
         guard connected, !watching, !dids.isEmpty else { return }
         watching = true
         stats.removeAll()
-        if engine?.demoMode == true { demoWatch(dids: dids); return }
+        gpsMin = nil; gpsMax = nil
+        startLog(dids: dids)
+        watchGeneration += 1
+        let gen = watchGeneration
+        if engine?.demoMode == true { demoWatch(dids: dids, gen: gen); return }
         guard let c = client else { return }
         job = Task {
-            while !Task.isCancelled {
+            let t0 = Date()
+            while !Task.isCancelled, gen == watchGeneration {
+                // A GPS fix is only trusted if it's fresh — CoreLocation can
+                // stop delivering (garage, tunnel) and the last value would
+                // otherwise be treated as live forever.
+                let fresh = (engine?.gps.lastUpdate)
+                    .map { Date().timeIntervalSince($0) < 2.0 } ?? false
                 let gps = engine?.gps.mph
+                let gpsOK = fresh && engine?.gps.accuracyOK == true
                 gpsMph = gps
+                if let g = gps, gpsOK {
+                    gpsMin = min(gpsMin ?? g, g)
+                    gpsMax = max(gpsMax ?? g, g)
+                }
+                var row: [UInt16: [UInt16]] = [:]
                 for did in dids {
-                    guard let bytes = await probe(c, did: did, timeout: 0.4) else { continue }
+                    let bytes = await probe(c, did: did, timeout: 0.4)
+                    guard gen == watchGeneration else { return }   // stale task
+                    guard let bytes else { continue }
                     let f = FoundDid(did: did, bytes: bytes)
-                    if let g = gps, engine?.gps.accuracyOK == true, g > 5 {
+                    row[did] = f.words
+                    if let g = gps, gpsOK, g > 5 {
                         for (i, w) in f.words.enumerated() {
                             let key = String(format: "%04X.%d", did, i)
                             var s = stats[key] ?? ChannelStat(did: did, word: i)
@@ -220,7 +256,9 @@ final class DidScanner: ObservableObject {
                             stats[key] = s
                         }
                     } else {
-                        // still show live raw even without GPS lock
+                        // still show live raw even without GPS lock; the
+                        // time-series log below captures these samples too
+                        // (that's how a stationary burnout becomes visible)
                         for (i, w) in f.words.enumerated() {
                             let key = String(format: "%04X.%d", did, i)
                             var s = stats[key] ?? ChannelStat(did: did, word: i)
@@ -229,13 +267,84 @@ final class DidScanner: ObservableObject {
                         }
                     }
                 }
-                try? await Task.sleep(nanoseconds: 40_000_000)   // ~25 Hz
+                appendLogRow(t: Date().timeIntervalSince(t0), gps: gps, gpsOK: gpsOK, values: row)
+                try? await Task.sleep(nanoseconds: 40_000_000)
             }
-            watching = false
+            if gen == watchGeneration {
+                flushLog()
+                watching = false
+            }
         }
     }
 
-    func stopWatch() { job?.cancel(); watching = false }
+    func stopWatch() {
+        watchGeneration += 1        // invalidate any in-flight task immediately
+        job?.cancel(); job = nil
+        flushLog()
+        watching = false
+    }
+
+    // MARK: watch time-series log
+    //
+    // Everything the watch sees — every decoded channel value plus GPS —
+    // is appended to a CSV, including below-5-mph samples the correlation
+    // math skips. A stationary wheelspin (rears moving, GPS ≈ 0) is
+    // invisible to correlation but obvious in this log.
+
+    private var logURL: URL?
+    private var logColumns: [(did: UInt16, words: Int)] = []
+    private var logPending: [String] = []
+
+    private func startLog(dids: [UInt16]) {
+        logColumns = found.filter { dids.contains($0.did) }
+                          .map { ($0.did, max($0.words.count, 1)) }
+        let header = "t_s,gps_mph,gps_ok,"
+            + logColumns.flatMap { col in
+                (0..<col.words).map { String(format: "%04X.w%d", col.did, $0) }
+            }.joined(separator: ",")
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyyMMdd_HHmmss"
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(String(format: "did_watch_0x%02x_%@.csv",
+                                           target, fmt.string(from: Date())))
+        try? (header + "\n").write(to: url, atomically: true, encoding: .utf8)
+        logURL = url
+        logPending = []
+        watchLogURL = url
+    }
+
+    private func appendLogRow(t: Double, gps: Double?, gpsOK: Bool, values: [UInt16: [UInt16]]) {
+        var cells = [String(format: "%.2f", t),
+                     gps.map { String(format: "%.1f", $0) } ?? "",
+                     gpsOK ? "1" : "0"]
+        for col in logColumns {
+            let words = values[col.did] ?? []
+            for i in 0..<col.words {
+                cells.append(i < words.count ? String(words[i]) : "")
+            }
+        }
+        logPending.append(cells.joined(separator: ","))
+        if logPending.count >= 100 { flushLog() }
+    }
+
+    /// Append pending rows to the log file (append-only: cheap and linear,
+    /// no matter how long the drive gets).
+    private func flushLog() {
+        guard let url = logURL, !logPending.isEmpty else { return }
+        let data = Data((logPending.joined(separator: "\n") + "\n").utf8)
+        logPending.removeAll()
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+        }
+    }
+
+    /// Flush pending rows, then hand back the complete watch-log file.
+    func exportWatchLog() -> URL? {
+        flushLog()
+        return watchLogURL
+    }
 
     /// Channels ranked by how strongly they track GPS speed.
     var rankedChannels: [ChannelStat] {
@@ -280,13 +389,15 @@ final class DidScanner: ObservableObject {
         }
     }
 
-    private func demoWatch(dids: [UInt16]) {
+    private func demoWatch(dids: [UInt16], gen: Int) {
         job = Task {
             var t = 0.0
-            while !Task.isCancelled {
+            while !Task.isCancelled, gen == watchGeneration {
                 t += 0.04
                 let mph = 30 + 25 * (1 + sin(t / 3))          // roll 30–80 mph
                 gpsMph = mph
+                gpsMin = min(gpsMin ?? mph, mph)
+                gpsMax = max(gpsMax ?? mph, mph)
                 let kmh = mph * kmhPerMph
                 let rear = kmh * 1.04                          // rear wheels spin ~4% faster
                 let raws: [(UInt16, Double)] = [
@@ -301,8 +412,13 @@ final class DidScanner: ObservableObject {
                     s.add(raw: raw, gpsMph: mph)
                     stats[key] = s
                 }
+                if dids.contains(0xDD05) {
+                    appendLogRow(t: t, gps: mph, gpsOK: true,
+                                 values: [0xDD05: raws.map { UInt16($0.1.rounded()) }])
+                }
                 try? await Task.sleep(nanoseconds: 40_000_000)
             }
+            if gen == watchGeneration { flushLog() }
         }
     }
 }
