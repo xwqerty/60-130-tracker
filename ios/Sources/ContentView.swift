@@ -311,6 +311,13 @@ struct SettingsView: View {
                          + "30 mph for ~30 seconds to calibrate; the factor is "
                          + "remembered between drives.")
                 }
+                Section("Advanced") {
+                    NavigationLink {
+                        DidScannerView(scanner: engine.scanner)
+                    } label: {
+                        Label("Wheel-speed finder", systemImage: "scope")
+                    }
+                }
                 Section {
                     Button("Clear results", role: .destructive) { engine.clearResults() }
                 } footer: {

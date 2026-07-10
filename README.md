@@ -19,6 +19,29 @@ in Xcode, set your signing team, plug in the phone, press Run. Demo mode
 (Settings gear in the app) simulates pulls without the car; it defaults on
 in the iOS simulator, off on a real phone.
 
+The app also fuses phone GPS with ECU speed: it compares GPS speed to the
+car's reported wheel speed while cruising and corrects for tire size, so
+run times don't drift with tire wear. Calibration is automatic after ~30 s
+of steady driving above 30 mph; see the GPS section in Settings.
+
+### Wheel-speed finder (Settings › Advanced)
+
+A diagnostic tool for locating the DSC/ABS module's individual wheel-speed
+DIDs, so runs can eventually be timed on **front-wheel** speed (undriven on
+a RWD M240i, so immune to rear wheelspin at launch). BMW doesn't publish
+these identifiers, so the finder discovers them empirically:
+
+1. Park, pick the target ECU (DSC 0x29 default), tap Connect — timing pauses
+   while it holds the diagnostic session.
+2. Scan: enumerates every DID the ECU answers (UDS 0x22).
+3. Select the 8-byte (4×uint16) candidates and tap Watch, then drive: each
+   decoded channel is correlated live against GPS speed. The four channels
+   with r≈1.000 are the wheel speeds; the pair that reads lower under
+   acceleration are the fronts. Export the findings as CSV.
+
+Once the DID and channel offsets are known, they get wired in as a proper
+front-wheel speed source.
+
 ## The laptop app (easiest way)
 
 ```

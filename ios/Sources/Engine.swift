@@ -45,6 +45,8 @@ final class Engine: ObservableObject {
     /// True once enough GPS/ECU comparisons have been collected.
     var calibrated: Bool { gpsCalEnabled && speedFactorSamples >= Engine.minCalSamples }
 
+    lazy var scanner = DidScanner(engine: self)
+
     static let fallbackHosts = ["192.168.16.254", "169.254.128.7"]
 
     static var isSimulator: Bool {
@@ -75,6 +77,19 @@ final class Engine: ObservableObject {
     func start() {
         worker?.cancel()
         worker = Task { await runLoop() }
+    }
+
+    /// Release the timing connection so the DID scanner can hold the only
+    /// diagnostic session on the gateway.
+    func suspendTiming() {
+        worker?.cancel()
+        worker = nil
+        phase = .searching
+        mph = 0
+    }
+
+    func resumeTiming() {
+        if worker == nil { start() }
     }
 
     func arm(_ range: SpeedRange) {
