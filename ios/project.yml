@@ -1,4 +1,9 @@
 name: M240iTracker
+# Personal signing (team ID) lives in project-local.yml, which is gitignored.
+# Before generating: cp project-local.yml.example project-local.yml and fill
+# in your Apple team ID (or leave the placeholder and set the team in Xcode).
+include:
+  - project-local.yml
 options:
   bundleIdPrefix: com.kristiansimovski
   deploymentTarget:

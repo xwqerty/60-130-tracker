@@ -15,3 +15,6 @@ DerivedData/
 # Tooling / local
 .claude/
 .DS_Store
+
+# Personal signing config
+ios/project-local.yml

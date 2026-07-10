@@ -14,8 +14,10 @@ Native SwiftUI app in [ios/](ios/) — the phone joins the "MHD ENET" WiFi
 and talks HSFZ/UDS to the car directly. Same UI and timing logic as the
 web app; run CSVs are saved to Files › On My iPhone › 60-130 › logs.
 
-To install: `cd ios && xcodegen generate`, open `M240iTracker.xcodeproj`
-in Xcode, set your signing team, plug in the phone, press Run. Demo mode
+To install: `cd ios`, copy `project-local.yml.example` to
+`project-local.yml` and fill in your Apple team ID (the file stays out of
+git), then `xcodegen generate`, open `M240iTracker.xcodeproj` in Xcode,
+plug in the phone, press Run. Demo mode
 (Settings gear in the app) simulates pulls without the car; it defaults on
 in the iOS simulator, off on a real phone.
 

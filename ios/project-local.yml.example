@@ -1,0 +1,8 @@
+# Copy to project-local.yml (gitignored) and fill in your Apple team ID —
+# Xcode → Settings → Accounts → your Apple ID → Team ID, or find it at
+# developer.apple.com/account. Then re-run `xcodegen generate`.
+targets:
+  M240iTracker:
+    settings:
+      base:
+        DEVELOPMENT_TEAM: YOUR_TEAM_ID
