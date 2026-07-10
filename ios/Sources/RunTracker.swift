@@ -34,6 +34,7 @@ final class RunTracker {
     let rearmMph: Double
     let label: String
     let splitLabels: [String]
+    let note: String?
 
     private(set) var state: State = .armed
     private(set) var tStart: Double?
@@ -44,9 +45,10 @@ final class RunTracker {
     private var samples: [(t: Double, mph: Double)] = []
     private var vmax = 0.0
 
-    init(startMph: Double, endMph: Double) {
+    init(startMph: Double, endMph: Double, note: String? = nil) {
         self.startMph = startMph
         self.endMph = endMph
+        self.note = note
         // 60-130 keeps the traditional 100 split; other ranges use the midpoint
         self.splitMph = (startMph == 60 && endMph == 130) ? 100 : (startMph + endMph) / 2
         self.rearmMph = max(startMph - Self.rearmMarginMph, 0)
@@ -144,6 +146,7 @@ final class RunTracker {
         if let v = r.split1 { text += "# \(splitLabels[0]): \(String(format: "%.2f", v)) s\n" }
         if let v = r.split2 { text += "# \(splitLabels[1]): \(String(format: "%.2f", v)) s\n" }
         text += "# vmax: \(String(format: "%.1f", r.vmaxMph)) mph\n"
+        if let note { text += "# \(note)\n" }
         text += "t_s,mph,kmh\n"
         for (t, mph) in samples {
             text += String(format: "%.3f,%.1f,%.1f\n", t - tStart, mph, mph * kmhPerMph)

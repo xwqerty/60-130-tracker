@@ -34,6 +34,17 @@ final class Engine: ObservableObject {
     @AppStorage("lastHost") var lastHost = ""
     @AppStorage("demoMode") var demoMode = Engine.isSimulator
 
+    // GPS calibration of ECU wheel speed
+    let gps = GpsSpeed()
+    @AppStorage("gpsCalEnabled") var gpsCalEnabled = true
+    @AppStorage("speedFactor") var speedFactor = 1.0
+    @AppStorage("speedFactorSamples") var speedFactorSamples = 0
+    private var lastCalUpdate = Date.distantPast
+    static let minCalSamples = 20
+
+    /// True once enough GPS/ECU comparisons have been collected.
+    var calibrated: Bool { gpsCalEnabled && speedFactorSamples >= Engine.minCalSamples }
+
     static let fallbackHosts = ["192.168.16.254", "169.254.128.7"]
 
     static var isSimulator: Bool {
@@ -57,6 +68,7 @@ final class Engine: ObservableObject {
            let saved = try? JSONDecoder().decode([RunResult].self, from: data) {
             results = saved
         }
+        gps.start()
         start()
     }
 
@@ -67,7 +79,11 @@ final class Engine: ObservableObject {
 
     func arm(_ range: SpeedRange) {
         guard phase == .ready else { return }
-        tracker = RunTracker(startMph: range.start, endMph: range.end)
+        let note = calibrated
+            ? String(format: "speed_correction: %+.2f%% (GPS-calibrated, %d fixes)",
+                     (speedFactor - 1) * 100, speedFactorSamples)
+            : nil
+        tracker = RunTracker(startMph: range.start, endMph: range.end, note: note)
         armedRange = range
         phase = .armed
         UIApplication.shared.isIdleTimerDisabled = true
@@ -98,6 +114,28 @@ final class Engine: ObservableObject {
         }
     }
 
+    /// Compare GPS speed against ECU speed during steady, well-measured
+    /// driving and fold the ratio into a slow-moving correction factor.
+    private func updateCalibration(rawMph: Double) {
+        guard gpsCalEnabled, !demoMode,
+              let gpsMph = gps.mph, gps.accuracyOK,
+              gps.lastUpdate > lastCalUpdate,               // one sample per GPS fix
+              Date().timeIntervalSince(gps.lastUpdate) < 1.5,
+              rawMph > 30, gpsMph > 30,                     // moving; ratio well-conditioned
+              phase != .recording                           // hard acceleration skews latency
+        else { return }
+        lastCalUpdate = gps.lastUpdate
+        let ratio = min(max(gpsMph / rawMph, 0.9), 1.1)     // reject outliers
+        let alpha = speedFactorSamples < Engine.minCalSamples ? 0.15 : 0.02
+        speedFactor = speedFactorSamples == 0 ? ratio : speedFactor * (1 - alpha) + ratio * alpha
+        speedFactorSamples += 1
+    }
+
+    func resetCalibration() {
+        speedFactor = 1.0
+        speedFactorSamples = 0
+    }
+
     // MARK: worker
 
     private func runLoop() async {
@@ -115,7 +153,9 @@ final class Engine: ObservableObject {
             do {
                 while !Task.isCancelled {
                     let (t, kmh) = try await source.read()
-                    let mphNow = kmh / kmhPerMph
+                    let rawMph = kmh / kmhPerMph
+                    updateCalibration(rawMph: rawMph)
+                    let mphNow = calibrated ? rawMph * speedFactor : rawMph
                     mph = mphNow
                     lastT = t
                     if let tracker {

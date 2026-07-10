@@ -66,6 +66,12 @@ struct ContentView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .tracking(6)
                 .foregroundColor(.dim)
+            if engine.calibrated {
+                Text(String(format: "GPS-calibrated %+.1f%%", (engine.speedFactor - 1) * 100))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.go.opacity(0.7))
+                    .padding(.top, 2)
+            }
         }
         .padding(.bottom, 16)
     }
@@ -254,6 +260,32 @@ struct ResultCard: View {
     }
 }
 
+struct GpsCalRows: View {
+    @ObservedObject var gps: GpsSpeed
+    @ObservedObject var engine: Engine
+
+    var body: some View {
+        HStack {
+            Text("Correction")
+            Spacer()
+            Text(engine.speedFactorSamples == 0
+                 ? "—"
+                 : String(format: "%+.2f%% · %d fixes", (engine.speedFactor - 1) * 100,
+                          engine.speedFactorSamples))
+                .foregroundColor(.secondary)
+                .monospacedDigit()
+        }
+        HStack {
+            Text("GPS speed now")
+            Spacer()
+            Text(!gps.authorized ? "no permission"
+                 : gps.mph.map { String(format: "%.1f mph", $0) } ?? "no fix")
+                .foregroundColor(.secondary)
+                .monospacedDigit()
+        }
+    }
+}
+
 struct SettingsView: View {
     @EnvironmentObject var engine: Engine
     @Environment(\.dismiss) private var dismiss
@@ -266,6 +298,18 @@ struct SettingsView: View {
                         .keyboardType(.decimalPad)
                         .autocorrectionDisabled()
                     Toggle("Demo mode (simulated car)", isOn: engine.$demoMode)
+                }
+                Section {
+                    Toggle("GPS speed calibration", isOn: engine.$gpsCalEnabled)
+                    GpsCalRows(gps: engine.gps, engine: engine)
+                    Button("Reset calibration") { engine.resetCalibration() }
+                } header: {
+                    Text("GPS calibration")
+                } footer: {
+                    Text("Compares GPS speed to the car's wheel speed while you "
+                         + "cruise and corrects for tire size. Drive steadily above "
+                         + "30 mph for ~30 seconds to calibrate; the factor is "
+                         + "remembered between drives.")
                 }
                 Section {
                     Button("Clear results", role: .destructive) { engine.clearResults() }

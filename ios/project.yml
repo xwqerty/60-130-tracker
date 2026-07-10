@@ -19,6 +19,9 @@ targets:
         NSLocalNetworkUsageDescription: >-
           Connects to your BMW through the MHD WiFi adapter to read
           vehicle speed for timing runs.
+        NSLocationWhenInUseUsageDescription: >-
+          GPS speed is used to calibrate the car's reported wheel speed,
+          making run times more accurate.
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
     settings:
