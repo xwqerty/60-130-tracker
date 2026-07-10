@@ -12,10 +12,15 @@ extension Color {
 
 struct ContentView: View {
     @EnvironmentObject var engine: Engine
-    @State private var selectedRange = SpeedRange.all[0]
+    @State private var startMph: Double = 60
+    @State private var endMph: Double = 130
     @State private var showSettings = false
 
     private var active: Bool { engine.phase == .armed || engine.phase == .recording }
+
+    private var selectedRange: SpeedRange {
+        SpeedRange(key: "\(Int(startMph))–\(Int(endMph))", start: startMph, end: endMph)
+    }
 
     var body: some View {
         ZStack {
@@ -27,7 +32,10 @@ struct ContentView: View {
                         .padding(.bottom, 18)
                     speedometer
                     runZone
-                    if !active { rangePicker.padding(.bottom, 14) }
+                    if !active {
+                        customRange.padding(.bottom, 14)
+                        rangePicker.padding(.bottom, 14)
+                    }
                     goButton
                     resultsList
                 }
@@ -113,19 +121,46 @@ struct ContentView: View {
         return CGFloat(min(max(p, 0), 1))
     }
 
+    private var customRange: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 6) {
+                Text("\(Int(startMph))–\(Int(endMph))")
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                Text("MPH")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(2)
+                    .foregroundColor(.dim)
+            }
+            RangeSlider(start: $startMph, end: $endMph)
+            HStack {
+                Text("0")
+                Spacer()
+                Text("drag both ends to set any range")
+                Spacer()
+                Text("160")
+            }
+            .font(.system(size: 11, weight: .medium))
+            .monospacedDigit()
+            .foregroundColor(.dim)
+        }
+    }
+
     private var rangePicker: some View {
         HStack(spacing: 4) {
             ForEach(SpeedRange.all) { range in
+                let isSelected = startMph == range.start && endMph == range.end
                 Button {
-                    selectedRange = range
+                    startMph = range.start
+                    endMph = range.end
                 } label: {
                     Text(range.key)
                         .font(.system(size: 15, weight: .semibold))
                         .monospacedDigit()
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(selectedRange == range ? Color.cardBorder : .clear)
-                        .foregroundColor(selectedRange == range ? .white : Color(white: 0.55))
+                        .background(isSelected ? Color.cardBorder : .clear)
+                        .foregroundColor(isSelected ? .white : Color(white: 0.55))
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
             }
@@ -160,6 +195,78 @@ struct ContentView: View {
             }
         }
         .padding(.top, 24)
+    }
+}
+
+/// Dual-handle slider: drag either end of the line to set the run's start
+/// and end speeds (0-160 mph, 5 mph steps, minimum 10 mph window).
+struct RangeSlider: View {
+    @Binding var start: Double
+    @Binding var end: Double
+    var bounds: ClosedRange<Double> = 0...160
+    var step: Double = 5
+    var minGap: Double = 10
+
+    private let handleSize: CGFloat = 26
+    private let trackHeight: CGFloat = 6
+
+    var body: some View {
+        GeometryReader { geo in
+            let usable = geo.size.width - handleSize
+            let startX = position(of: start, usable: usable)
+            let endX = position(of: end, usable: usable)
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.card)
+                    .frame(height: trackHeight)
+                    .padding(.horizontal, handleSize / 2 - 2)
+                Capsule()
+                    .fill(Color.go)
+                    .frame(width: max(endX - startX, trackHeight), height: trackHeight)
+                    .offset(x: startX + handleSize / 2)
+                handle(atX: startX, label: Int(start)) { x in
+                    start = snapped(value(atX: x, usable: usable),
+                                    low: bounds.lowerBound, high: end - minGap)
+                }
+                handle(atX: endX, label: Int(end)) { x in
+                    end = snapped(value(atX: x, usable: usable),
+                                  low: start + minGap, high: bounds.upperBound)
+                }
+            }
+            .coordinateSpace(name: "rangeslider")
+        }
+        .frame(height: handleSize + 4)
+    }
+
+    private func position(of v: Double, usable: CGFloat) -> CGFloat {
+        CGFloat((v - bounds.lowerBound) / (bounds.upperBound - bounds.lowerBound)) * usable
+    }
+
+    private func value(atX x: CGFloat, usable: CGFloat) -> Double {
+        Double(x / max(usable, 1)) * (bounds.upperBound - bounds.lowerBound) + bounds.lowerBound
+    }
+
+    private func snapped(_ v: Double, low: Double, high: Double) -> Double {
+        min(max((v / step).rounded() * step, low), high)
+    }
+
+    private func handle(atX x: CGFloat, label: Int,
+                        onDrag: @escaping (CGFloat) -> Void) -> some View {
+        ZStack {
+            Circle()
+                .fill(Color.white)
+            Text("\(label)")
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundColor(.black)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(width: handleSize, height: handleSize)
+        .offset(x: x)
+        .gesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .named("rangeslider"))
+                .onChanged { drag in onDrag(drag.location.x - handleSize / 2) }
+        )
     }
 }
 
