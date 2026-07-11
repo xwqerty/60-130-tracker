@@ -38,6 +38,7 @@ struct ContentView: View {
                     }
                     goButton
                     resultsList
+                    footnote
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 32)
@@ -184,6 +185,19 @@ struct ContentView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 18))
         }
         .disabled(engine.phase == .searching)
+    }
+
+    private var footnote: some View {
+        Text(engine.calibrated
+             ? "Continuously GPS-calibrated in real time — every run stays locked to true ground speed."
+             : "Speed is cross-checked against GPS and fine-tuned in real time for true-ground-speed accuracy.")
+            .font(.system(size: 11))
+            .foregroundColor(.dim)
+            .multilineTextAlignment(.center)
+            .lineSpacing(2)
+            .padding(.horizontal, 24)
+            .padding(.top, 28)
+            .padding(.bottom, 8)
     }
 
     private var resultsList: some View {

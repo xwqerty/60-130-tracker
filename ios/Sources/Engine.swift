@@ -70,7 +70,8 @@ final class Engine: ObservableObject {
            let saved = try? JSONDecoder().decode([RunResult].self, from: data) {
             results = saved
         }
-        gps.start()
+        // gps.start() is triggered by the app once onboarding is done (or at
+        // launch for returning users), so the location prompt appears in context.
         start()
     }
 

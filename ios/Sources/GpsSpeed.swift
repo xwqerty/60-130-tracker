@@ -16,6 +16,7 @@ final class GpsSpeed: NSObject, ObservableObject, CLLocationManagerDelegate {
     private(set) var lastUpdate = Date.distantPast
 
     private let manager = CLLocationManager()
+    private var started = false
 
     override init() {
         super.init()
@@ -25,6 +26,8 @@ final class GpsSpeed: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     func start() {
+        guard !started else { return }   // idempotent: safe to call from launch and onboarding
+        started = true
         manager.requestWhenInUseAuthorization()
         manager.startUpdatingLocation()
     }
