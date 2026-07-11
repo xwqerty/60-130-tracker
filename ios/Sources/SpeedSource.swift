@@ -56,6 +56,37 @@ final class EnetSpeedSource: SpeedSource, @unchecked Sendable {
     }
 }
 
+/// Times runs from the phone's own GPS speed — works on any car (or none),
+/// no adapter required. GPS updates ~1 Hz, so timing is coarser than an ECU
+/// feed; best with a clear view of the sky. This is the universal "try it
+/// now" source; the adapter modes are the precision upgrade.
+final class GpsSpeedSource: SpeedSource, @unchecked Sendable {
+    private let gps: GpsSpeed
+    private var lastStamp = Date.distantPast
+
+    init(gps: GpsSpeed) { self.gps = gps }
+
+    func start() async throws -> String {
+        gps.start()
+        for _ in 0..<40 where !gps.hasFix {     // wait up to ~8 s for a first fix
+            try await Task.sleep(nanoseconds: 200_000_000)
+        }
+        return "phone GPS"
+    }
+
+    func read() async throws -> (t: Double, kmh: Double) {
+        // Emit one sample per fresh GPS fix (~1 Hz) rather than spinning.
+        for _ in 0..<300 {
+            if gps.lastUpdate != lastStamp {
+                lastStamp = gps.lastUpdate
+                return (ProcessInfo.processInfo.systemUptime, (gps.mph ?? 0) * kmhPerMph)
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return (ProcessInfo.processInfo.systemUptime, (gps.mph ?? 0) * kmhPerMph)
+    }
+}
+
 /// Fake M240i for the iOS simulator / demo mode: sits still 3 s, pulls to
 /// ~138 mph, brakes to a stop, repeats. Quantized to whole km/h like the
 /// real PID.

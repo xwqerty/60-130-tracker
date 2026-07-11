@@ -318,7 +318,7 @@ struct StatusPill: View {
 
     private var text: String {
         switch phase {
-        case .searching: return "Searching for MHD adapter…"
+        case .searching: return "Connecting…"
         case .ready: return "Connected — ready to log"
         case .armed: return "Armed — waiting for start speed"
         case .recording: return "Recording…"
@@ -430,32 +430,68 @@ struct SettingsView: View {
     @EnvironmentObject var engine: Engine
     @Environment(\.dismiss) private var dismiss
 
+    private var sourceFooter: String {
+        switch engine.connMode {
+        case .bmw: "Reads high-rate speed from the ECU via the MHD/ENET adapter — "
+            + "the most precise mode. Join the adapter's Wi-Fi."
+        case .obd: "Works on any 2008+ car with a Wi-Fi ELM327 adapter. Join the "
+            + "adapter's Wi-Fi; its default IP is 192.168.0.10."
+        case .gps: "Uses your phone's GPS — no adapter, works in any car. Lower "
+            + "sample rate than an adapter, so timing is a little coarser."
+        case .demo: "A simulated car for trying the app out. No hardware needed."
+        }
+    }
+
     var body: some View {
         NavigationView {
             Form {
-                Section("Connection") {
-                    TextField("Adapter IP (blank = auto)", text: engine.$customHost)
-                        .keyboardType(.decimalPad)
-                        .autocorrectionDisabled()
-                    Toggle("Demo mode (simulated car)", isOn: engine.$demoMode)
+                Section {
+                    Picker("Speed source", selection: Binding(
+                        get: { engine.connMode },
+                        set: { engine.connMode = $0; engine.start() })) {
+                        ForEach(ConnectionMode.allCases) { m in Text(m.label).tag(m) }
+                    }
+                    if engine.connMode == .bmw {
+                        TextField("BMW adapter IP (blank = auto)", text: engine.$customHost)
+                            .keyboardType(.decimalPad).autocorrectionDisabled()
+                    }
+                    if engine.connMode == .obd {
+                        TextField("OBD adapter IP", text: engine.$obdHost)
+                            .keyboardType(.decimalPad).autocorrectionDisabled()
+                    }
+                } header: {
+                    Text("Speed source")
+                } footer: {
+                    Text(sourceFooter)
+                }
+                if engine.connMode.isECU {
+                    Section {
+                        Toggle("GPS speed calibration", isOn: engine.$gpsCalEnabled)
+                        GpsCalRows(gps: engine.gps, engine: engine)
+                        Button("Reset calibration") { engine.resetCalibration() }
+                    } header: {
+                        Text("GPS calibration")
+                    } footer: {
+                        Text("Compares GPS speed to the car's reported speed while you "
+                             + "cruise and corrects for tire size. Drive steadily above "
+                             + "30 mph for ~30 seconds to calibrate; the factor is "
+                             + "remembered between drives.")
+                    }
                 }
                 Section {
-                    Toggle("GPS speed calibration", isOn: engine.$gpsCalEnabled)
-                    GpsCalRows(gps: engine.gps, engine: engine)
-                    Button("Reset calibration") { engine.resetCalibration() }
-                } header: {
-                    Text("GPS calibration")
-                } footer: {
-                    Text("Compares GPS speed to the car's wheel speed while you "
-                         + "cruise and corrects for tire size. Drive steadily above "
-                         + "30 mph for ~30 seconds to calibrate; the factor is "
-                         + "remembered between drives.")
-                }
-                Section("Advanced") {
                     NavigationLink {
-                        DidScannerView(scanner: engine.scanner)
+                        AboutView()
                     } label: {
-                        Label("Wheel-speed finder", systemImage: "scope")
+                        Label("About & how accuracy works", systemImage: "info.circle")
+                    }
+                }
+                if engine.connMode == .bmw {
+                    Section("Advanced") {
+                        NavigationLink {
+                            DidScannerView(scanner: engine.scanner)
+                        } label: {
+                            Label("Wheel-speed finder", systemImage: "scope")
+                        }
                     }
                 }
                 Section {
@@ -472,6 +508,57 @@ struct SettingsView: View {
                     engine.start()   // reconnect with new settings
                 }
             }
+        }
+    }
+}
+
+struct AboutView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                block(title: "Why I built this",
+                      body: "I'm an enthusiast, not a big company. I wanted a dead-simple "
+                          + "way to see real roll-on times — 60–130 and anything else — "
+                          + "without a $250 box or a subscription, using the phone that's "
+                          + "already in the car. So I built it, use it on my own car, and "
+                          + "keep improving it. If it helps you chase a number, that's the "
+                          + "whole point.")
+
+                block(title: "How the accuracy works",
+                      body: "Two signals, each covering the other's weakness:\n\n"
+                          + "• Speed — from the car's ECU (via an adapter) or your phone's "
+                          + "GPS. The ECU feed is fast (dozens of samples a second), which "
+                          + "is what catches the exact instant you cross a threshold.\n\n"
+                          + "• GPS truth — GPS speed is absolutely accurate but updates "
+                          + "about once a second. The app continuously compares it to the "
+                          + "car's reading and corrects for tire size and speedo error, so "
+                          + "the fast signal stays locked to true ground speed.\n\n"
+                          + "Threshold crossings (60, 100, 130…) are interpolated between "
+                          + "samples, so timing resolution is finer than the raw sample "
+                          + "rate. It's the same GPS-referenced principle dedicated "
+                          + "performance meters use.")
+
+                block(title: "How accurate is it, really?",
+                      body: "With an adapter + GPS calibration, times land within a few "
+                          + "hundredths of true. Phone-GPS-only mode is rougher (GPS is "
+                          + "~1 Hz) — great for a quick read, but the adapter is the "
+                          + "precision upgrade. Every run is saved as a full CSV trace you "
+                          + "can inspect yourself — no black box.")
+            }
+            .padding(20)
+        }
+        .navigationTitle("About")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func block(title: String, body: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.system(size: 18, weight: .bold))
+            Text(body)
+                .font(.system(size: 15))
+                .foregroundColor(.secondary)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

@@ -21,6 +21,22 @@ struct SpeedRange: Hashable, Identifiable {
     ]
 }
 
+/// How the app gets vehicle speed.
+enum ConnectionMode: String, CaseIterable, Identifiable {
+    case bmw, obd, gps, demo
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .bmw: "BMW · MHD / ENET adapter"
+        case .obd: "Any car · Wi-Fi OBD (ELM327)"
+        case .gps: "Phone GPS only — no adapter"
+        case .demo: "Demo — simulated car"
+        }
+    }
+    /// ECU-based sources whose speed benefits from GPS calibration.
+    var isECU: Bool { self == .bmw || self == .obd }
+}
+
 @MainActor
 final class Engine: ObservableObject {
     @Published var phase: Phase = .searching
@@ -30,9 +46,19 @@ final class Engine: ObservableObject {
     @Published var armedRange: SpeedRange?
     @Published var results: [RunResult] = []
 
-    @AppStorage("customHost") var customHost = ""
+    @AppStorage("customHost") var customHost = ""      // BMW adapter IP override
+    @AppStorage("obdHost") var obdHost = "192.168.0.10" // ELM327 Wi-Fi adapter IP
     @AppStorage("lastHost") var lastHost = ""
-    @AppStorage("demoMode") var demoMode = Engine.isSimulator
+    @AppStorage("connModeRaw") var connModeRaw =
+        (Engine.isSimulator ? ConnectionMode.demo : ConnectionMode.bmw).rawValue
+
+    var connMode: ConnectionMode {
+        get { ConnectionMode(rawValue: connModeRaw) ?? .bmw }
+        set { connModeRaw = newValue.rawValue }
+    }
+    var demoMode: Bool { connMode == .demo }
+
+    static let defaultObdPort: UInt16 = 35000
 
     // GPS calibration of ECU wheel speed
     let gps = GpsSpeed()
@@ -133,7 +159,7 @@ final class Engine: ObservableObject {
     /// Compare GPS speed against ECU speed during steady, well-measured
     /// driving and fold the ratio into a slow-moving correction factor.
     private func updateCalibration(rawMph: Double) {
-        guard gpsCalEnabled, !demoMode,
+        guard gpsCalEnabled, connMode.isECU,
               let gpsMph = gps.mph, gps.accuracyOK,
               gps.lastUpdate > lastCalUpdate,               // one sample per GPS fix
               Date().timeIntervalSince(gps.lastUpdate) < 1.5,
@@ -156,7 +182,7 @@ final class Engine: ObservableObject {
 
     private func runLoop() async {
         while !Task.isCancelled {
-            let (source, client) = await connect()
+            let (source, teardown) = await connect()
             guard let source else {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 continue
@@ -171,7 +197,8 @@ final class Engine: ObservableObject {
                     let (t, kmh) = try await source.read()
                     let rawMph = kmh / kmhPerMph
                     updateCalibration(rawMph: rawMph)
-                    let mphNow = calibrated ? rawMph * speedFactor : rawMph
+                    // GPS/demo speed is already ground truth; only scale ECU sources.
+                    let mphNow = (connMode.isECU && calibrated) ? rawMph * speedFactor : rawMph
                     mph = mphNow
                     lastT = t
                     if let tracker {
@@ -185,9 +212,9 @@ final class Engine: ObservableObject {
                     }
                 }
             } catch {
-                // lost the adapter; fall through and reconnect
+                // lost the source; fall through and reconnect
             }
-            client?.close()
+            teardown?()
             phase = .searching
             mph = 0
             disarm()
@@ -195,12 +222,25 @@ final class Engine: ObservableObject {
         }
     }
 
-    private func connect() async -> (SpeedSource?, HsfzClient?) {
-        if demoMode {
+    private func connect() async -> (SpeedSource?, (() -> Void)?) {
+        switch connMode {
+        case .demo:
             detail = "SIMULATOR"
             return (SimSpeedSource(), nil)
+        case .gps:
+            gps.start()
+            detail = gps.authorized ? "phone GPS" : "allow Location to use GPS mode"
+            return (GpsSpeedSource(gps: gps), nil)
+        case .obd:
+            return await connectElm()
+        case .bmw:
+            return await connectBmw()
         }
+    }
 
+    // MARK: BMW (HSFZ / ENET)
+
+    private func connectBmw() async -> (SpeedSource?, (() -> Void)?) {
         let phoneIP = wifiIPv4()
         var hosts: [String] = []
         let custom = customHost.trimmingCharacters(in: .whitespaces)
@@ -212,7 +252,7 @@ final class Engine: ObservableObject {
 
         detail = phoneIP.map { "phone \($0) — trying known IPs…" }
             ?? "no WiFi — join the MHD ENET network"
-        if let hit = await probe(hosts: hosts) { return (hit.0, hit.1) }
+        if let hit = await probe(hosts: hosts) { return hit }
 
         // Known IPs silent: sweep the phone's own /24 for the HSFZ port.
         if let ip = phoneIP, let dot = ip.lastIndex(of: ".") {
@@ -220,7 +260,7 @@ final class Engine: ObservableObject {
             detail = "phone \(ip) — scanning \(prefix).x…"
             if let found = await scanSubnet(prefix: prefix, excluding: ip),
                let hit = await probe(hosts: [found]) {
-                return (hit.0, hit.1)
+                return hit
             }
         }
 
@@ -230,7 +270,7 @@ final class Engine: ObservableObject {
         return (nil, nil)
     }
 
-    private func probe(hosts: [String]) async -> (SpeedSource, HsfzClient)? {
+    private func probe(hosts: [String]) async -> (SpeedSource, (() -> Void))? {
         for host in hosts {
             let client = HsfzClient(host: host)
             do {
@@ -239,11 +279,30 @@ final class Engine: ObservableObject {
                 let mode = try await source.start()
                 detail = "\(host) · \(mode)"
                 lastHost = host
-                return (source, client)
+                return (source, { client.close() })
             } catch {
                 client.close()
             }
         }
         return nil
+    }
+
+    // MARK: generic OBD (ELM327 Wi-Fi)
+
+    private func connectElm() async -> (SpeedSource?, (() -> Void)?) {
+        let host = obdHost.trimmingCharacters(in: .whitespaces)
+        detail = "connecting to OBD adapter \(host)…"
+        let client = Elm327Client(host: host, port: Engine.defaultObdPort)
+        do {
+            try await client.connect()
+            let source = Elm327SpeedSource(client: client)
+            let mode = try await source.start()
+            detail = "\(host) · \(mode)"
+            return (source, { client.close() })
+        } catch {
+            client.close()
+            detail = "no OBD adapter at \(host) — join its Wi-Fi, ignition on. Set its IP in Settings if different."
+            return (nil, nil)
+        }
     }
 }

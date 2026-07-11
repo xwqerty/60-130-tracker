@@ -2,8 +2,8 @@ import SwiftUI
 
 struct OnboardingView: View {
     @ObservedObject var engine: Engine
-    /// demo == true means "let me try it now" (simulated car, no hardware).
-    var onFinish: (_ demo: Bool) -> Void
+    /// The connection mode the user chose to start with.
+    var onFinish: (_ mode: ConnectionMode) -> Void
     @State private var page = 0
 
     var body: some View {
@@ -55,9 +55,9 @@ struct OnboardingView: View {
     }
 
     private var tryPage: some View {
-        pageChrome(icon: "play.circle", title: "See it work — right now") {
-            Text("Run a demo pull and watch a full timed result in seconds. "
-                 + "Connect your car whenever you're ready.")
+        pageChrome(icon: "play.circle", title: "Start timing — right now") {
+            Text("Begin with just your phone's GPS. Add an adapter later for the "
+                 + "sharpest numbers — you can switch anytime in Settings.")
                 .modifier(BodyText())
         }
     }
@@ -70,11 +70,14 @@ struct OnboardingView: View {
                 Button("Next") { withAnimation { page += 1 } }
                     .buttonStyle(PrimaryButton())
             } else {
-                Button("Run a demo pull") { onFinish(true) }
+                Button("Start with my phone") { onFinish(.gps) }
                     .buttonStyle(PrimaryButton())
-                Button("I'll connect my car") { onFinish(false) }
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.dim)
+                HStack(spacing: 20) {
+                    Button("Try a demo") { onFinish(.demo) }
+                    Button("I have an adapter") { onFinish(.bmw) }
+                }
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.dim)
             }
 
             Text("Behind the scenes your speed is cross-checked against GPS and "

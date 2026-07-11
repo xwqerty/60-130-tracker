@@ -26,6 +26,21 @@ car's reported wheel speed while cruising and corrects for tire size, so
 run times don't drift with tire wear. Calibration is automatic after ~30 s
 of steady driving above 30 mph; see the GPS section in Settings.
 
+### Speed sources (works beyond BMW)
+
+Pick a source in Settings — the timing/UI is identical across all four:
+
+- **BMW · MHD / ENET** — high-rate ECU speed over the MHD adapter (most precise).
+- **Any car · Wi-Fi OBD (ELM327)** — works on any 2008+ car with a cheap
+  Wi-Fi OBD dongle; reads universal PID 01 0D. Default adapter IP
+  192.168.0.10 (configurable).
+- **Phone GPS only** — no adapter at all, works in any car. Lower sample
+  rate (~1 Hz) so timing is coarser — the "try it now" universal mode.
+- **Demo** — a simulated car for trying the app without hardware.
+
+First launch shows a short intro and lets you start timing with just your
+phone; there's an in-app **About & how accuracy works** page under Settings.
+
 ### Wheel-speed finder (Settings › Advanced)
 
 A diagnostic tool for locating the DSC/ABS module's individual wheel-speed
