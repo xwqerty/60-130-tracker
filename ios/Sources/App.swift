@@ -15,9 +15,11 @@ struct M240iTrackerApp: App {
                     get: { !hasOnboarded },
                     set: { presented in if !presented { hasOnboarded = true } }
                 )) {
-                    OnboardingView {
+                    OnboardingView(engine: engine) { demo in
+                        engine.demoMode = demo   // "try it now" = simulated car, no hardware
+                        engine.gps.start()
+                        engine.start()           // reconnect using the chosen mode
                         hasOnboarded = true
-                        engine.gps.start()   // request Location in context, on the final page
                     }
                     .preferredColorScheme(.dark)
                 }

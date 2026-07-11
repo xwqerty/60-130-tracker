@@ -13,6 +13,8 @@ final class GpsSpeed: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var mph: Double?
     @Published var accuracyOK = false
     @Published var authorized = false
+    @Published var accuracyMph: Double?      // live GPS speed accuracy (± mph)
+    @Published var hasFix = false            // a valid GPS fix has arrived
     private(set) var lastUpdate = Date.distantPast
 
     private let manager = CLLocationManager()
@@ -43,9 +45,12 @@ final class GpsSpeed: NSObject, ObservableObject, CLLocationManagerDelegate {
         guard let loc = locations.last, loc.speed >= 0 else { return }
         let mph = loc.speed * 2.236936
         let ok = loc.speedAccuracy >= 0 && loc.speedAccuracy < 1.0   // < ~2.2 mph 1σ
+        let accMph: Double? = loc.speedAccuracy >= 0 ? loc.speedAccuracy * 2.236936 : nil
         DispatchQueue.main.async {
             self.mph = mph
             self.accuracyOK = ok
+            self.accuracyMph = accMph
+            self.hasFix = true
             self.lastUpdate = Date()
         }
     }
