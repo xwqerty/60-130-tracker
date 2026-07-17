@@ -29,6 +29,7 @@ targets:
           making run times more accurate.
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        ITSAppUsesNonExemptEncryption: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kristiansimovski.m240itracker
