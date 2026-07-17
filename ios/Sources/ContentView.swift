@@ -562,7 +562,7 @@ struct AboutView: View {
                 block(title: "Your privacy",
                       body: "Your location never leaves the phone, and runs are stored "
                           + "only on this device. No accounts, no tracking, no ads.")
-                Link("Privacy policy", destination: URL(string: "https://example.com/privacy")!)
+                Link("Privacy policy", destination: URL(string: "https://xwqerty.github.io/60-130-tracker/")!)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(.go)
 
