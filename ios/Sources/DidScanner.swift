@@ -1,3 +1,4 @@
+#if DEBUG
 // DID scanner — a diagnostic tool to find wheel-speed data identifiers.
 //
 // Individual wheel speeds live in the DSC/ABS module, not the DME, under
@@ -498,3 +499,5 @@ final class DidScanner: ObservableObject {
         }
     }
 }
+
+#endif

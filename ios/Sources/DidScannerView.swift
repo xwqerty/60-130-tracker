@@ -1,3 +1,4 @@
+#if DEBUG
 import SwiftUI
 
 struct DidScannerView: View {
@@ -220,3 +221,5 @@ struct ShareSheet: UIViewControllerRepresentable {
     }
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
+
+#endif

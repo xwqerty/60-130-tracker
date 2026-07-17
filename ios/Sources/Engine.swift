@@ -71,7 +71,9 @@ final class Engine: ObservableObject {
     /// True once enough GPS/ECU comparisons have been collected.
     var calibrated: Bool { gpsCalEnabled && speedFactorSamples >= Engine.minCalSamples }
 
-    lazy var scanner = DidScanner(engine: self)
+    #if DEBUG
+    lazy var scanner = DidScanner(engine: self)   // developer diagnostic; excluded from release
+    #endif
 
     static let fallbackHosts = ["192.168.16.254", "169.254.128.7"]
 
@@ -96,9 +98,8 @@ final class Engine: ObservableObject {
            let saved = try? JSONDecoder().decode([RunResult].self, from: data) {
             results = saved
         }
-        // gps.start() is triggered by the app once onboarding is done (or at
-        // launch for returning users), so the location prompt appears in context.
-        start()
+        // The worker (and any GPS/location request) is started by the app only
+        // after the safety gate and onboarding, so nothing prompts prematurely.
     }
 
     func start() {

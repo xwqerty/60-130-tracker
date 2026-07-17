@@ -485,8 +485,12 @@ struct SettingsView: View {
                         Label("About & how accuracy works", systemImage: "info.circle")
                     }
                 }
+                // Developer-only diagnostic tool. Compiled into DEBUG builds
+                // (installed from Xcode) but NOT into Release / App Store builds,
+                // so the public never sees a tool that can probe arbitrary ECUs.
+                #if DEBUG
                 if engine.connMode == .bmw {
-                    Section("Advanced") {
+                    Section("Advanced (developer)") {
                         NavigationLink {
                             DidScannerView(scanner: engine.scanner)
                         } label: {
@@ -494,6 +498,7 @@ struct SettingsView: View {
                         }
                     }
                 }
+                #endif
                 Section {
                     Button("Clear results", role: .destructive) { engine.clearResults() }
                 } footer: {
@@ -544,11 +549,31 @@ struct AboutView: View {
                           + "~1 Hz) — great for a quick read, but the adapter is the "
                           + "precision upgrade. Every run is saved as a full CSV trace you "
                           + "can inspect yourself — no black box.")
+
+                block(title: "Your privacy",
+                      body: "Your location never leaves the phone, and runs are stored "
+                          + "only on this device. No accounts, no tracking, no ads.")
+                Link("Privacy policy", destination: URL(string: "https://example.com/privacy")!)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.go)
+
+                HStack {
+                    Text("Version").font(.system(size: 14)).foregroundColor(.dim)
+                    Spacer()
+                    Text(appVersion).font(.system(size: 14)).foregroundColor(.dim).monospacedDigit()
+                }
+                .padding(.top, 4)
             }
             .padding(20)
         }
         .navigationTitle("About")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var appVersion: String {
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "\(v) (\(b))"
     }
 
     private func block(title: String, body: String) -> some View {
