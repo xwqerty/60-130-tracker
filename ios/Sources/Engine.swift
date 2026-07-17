@@ -15,8 +15,8 @@ struct SpeedRange: Hashable, Identifiable {
     var id: String { key }
 
     static let all: [SpeedRange] = [
+        SpeedRange(key: "0–60", start: 0, end: 60),
         SpeedRange(key: "60–130", start: 60, end: 130),
-        SpeedRange(key: "0–40 test", start: 0, end: 40),
         SpeedRange(key: "30–100", start: 30, end: 100),
     ]
 }
@@ -230,7 +230,18 @@ final class Engine: ObservableObject {
             return (SimSpeedSource(), nil)
         case .gps:
             gps.start()
-            detail = gps.authorized ? "phone GPS" : "allow Location to use GPS mode"
+            // Don't claim "connected" until GPS is actually usable. Until then
+            // we return nil so the loop keeps showing "acquiring", then flips
+            // to ready the moment a real fix arrives.
+            guard gps.authorized else {
+                detail = "Allow Location in Settings to use GPS mode"
+                return (nil, nil)
+            }
+            guard gps.hasFix else {
+                detail = "Acquiring GPS…"
+                return (nil, nil)
+            }
+            detail = "phone GPS"
             return (GpsSpeedSource(gps: gps), nil)
         case .obd:
             return await connectElm()

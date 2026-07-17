@@ -429,6 +429,13 @@ struct GpsCalRows: View {
 struct SettingsView: View {
     @EnvironmentObject var engine: Engine
     @Environment(\.dismiss) private var dismiss
+    @State private var configOnOpen = ""
+
+    // A signature of everything that affects the connection, so we only
+    // reconnect on Done if the user actually changed something.
+    private var configSignature: String {
+        "\(engine.connMode.rawValue)|\(engine.customHost)|\(engine.obdHost)"
+    }
 
     private var sourceFooter: String {
         switch engine.connMode {
@@ -448,7 +455,7 @@ struct SettingsView: View {
                 Section {
                     Picker("Speed source", selection: Binding(
                         get: { engine.connMode },
-                        set: { engine.connMode = $0; engine.start() })) {
+                        set: { engine.connMode = $0 })) {
                         ForEach(ConnectionMode.allCases) { m in Text(m.label).tag(m) }
                     }
                     if engine.connMode == .bmw {
@@ -507,10 +514,12 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .onAppear { configOnOpen = configSignature }
             .toolbar {
                 Button("Done") {
+                    let changed = configSignature != configOnOpen
                     dismiss()
-                    engine.start()   // reconnect with new settings
+                    if changed { engine.start() }   // only reconnect if settings actually changed
                 }
             }
         }
