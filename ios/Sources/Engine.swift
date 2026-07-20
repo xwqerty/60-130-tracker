@@ -87,7 +87,6 @@ final class Engine: ObservableObject {
 
     private var tracker: RunTracker?
     private var worker: Task<Void, Never>?
-    private var autoArmed = false
     private var lastT: Double = 0
     private let resultsURL = FileManager.default
         .urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -189,10 +188,6 @@ final class Engine: ObservableObject {
                 continue
             }
             phase = .ready
-            if CommandLine.arguments.contains("-autoArm"), !autoArmed {
-                autoArmed = true
-                arm(SpeedRange.all[0])
-            }
             do {
                 while !Task.isCancelled {
                     let (t, kmh) = try await source.read()
